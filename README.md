@@ -1,4 +1,4 @@
-CONTENTS OF THIS FILE
+CONTENTS
 ---------------------
 
  * [Introduction](#introduction)
@@ -22,7 +22,7 @@ composer require drupal/commerce_maib
 REQUIREMENTS
 ------------
 
->Before start using this module you need to request a .pfx certificate for your site from **Moldova Agroindbank**.
+>Before start using this module you need to request a .pfx certificate for your domain from **Moldova Agroindbank**.
 
 >**Moldova Agroindbank** support payment just in Moldovan Leu.
 
@@ -45,17 +45,17 @@ CONFIGURATION
  
  * Create payment gateway: /admin/commerce/config/payment-gateways
 
- * Set payment plugin name. Ex Maib
+ * Set payment plugin name. *Ex **Maib***.
 
  * Select **MAIB (Off-site redirect)** from plugins list.
 
- * After you have received the pfx file from Moldova Agroindbank it is necessary to unpack.
+ * After you have received the .pfx file from Moldova Agroindbank it is necessary to unpack.
 
- * Move the received files somewhere on the server and set field values: 
+ * Move the received files outside of **web** directory. *Ex **certs** folder* : 
    
-   - Path to the private key PEM file 
-   - Password for private key
-   - Path to the certificate PEM file containing public key
+   - Path to the private key PEM file. | *Ex /var/www/html/certs/private-key.pem*
+   - Password for private key | *Password provided by MAIB from the .pfx file*
+   - Path to the certificate PEM file containing public key | */var/www/html/certs/certificate.pem*
 
  * Select Transaction type.
 
