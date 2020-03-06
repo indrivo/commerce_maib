@@ -1,0 +1,58 @@
+<?php
+
+/**
+ * @file
+ * Provides maintenance for MAIB transactions.
+ */
+
+use Drupal\commerce_maib\MAIBGateway;
+use Drupal\commerce_paypal\Plugin\Commerce\PaymentGateway\CheckoutInterface;
+use Drupal\Component\Serialization\Json;
+use Drupal\Core\Access\AccessException;
+use Drupal\commerce_payment\Entity\PaymentGateway;
+
+/**
+ * Implements hook_cron().
+ */
+function commerce_maib_cron() {
+
+  // Close business day after midnight.
+  $today = date('Ymd');
+  $closed_date = \Drupal::state()->get('commerce_maib.last_closed_day', 0);
+  if ($today !== $closed_date) {
+    try {
+      $maib_payment_gateway_id = \Drupal::config('commerce_payment.commerce_payment_gateway.maib')->get('configuration.payment_gateway_id');
+
+      $maib_payment_gateway = PaymentGateway::load(MAIBGateway::MAIB_PLUGIN_ID);
+      
+      $result = $maib_payment_gateway->getClient()->closeDay();
+      if (isset($result[MAIBGateway::MAIB_RESULT]) && $result[MAIBGateway::MAIB_RESULT] == MAIBGateway::MAIB_RESULT_OK) {
+        \Drupal::logger('commerce_maib')->notice('Business day closed. Data: @data.', ['@data' => Json::encode($result)]);
+      }
+      else {
+        \Drupal::logger('commerce_maib')->error('Failed to close business day. Data: @data.', ['@data' => Json::encode($result)]);
+      }
+    }
+    catch (\Exception $e) {
+      \Drupal::logger('commerce_maib')->error('Failed to close business day. Error: @error.', ['@error' => $e->getMessage()]);
+    }
+
+    // Avoid repeating calls, even if failed.
+    \Drupal::state()->set('commerce_maib.last_closed_day', $today);
+  }
+
+  // Get payments id with new and authorization state.
+  $payment_storage_query = \Drupal::entityTypeManager()->getStorage('commerce_payment')->getQuery();
+  $state_group = $payment_storage_query->orConditionGroup()
+    ->condition('state', 'new')
+    ->condition('state', 'authorization');
+  $payment_ids = $payment_storage_query
+    ->condition($state_group)
+    ->condition('payment_gateway', $maib_payment_gateway_id)
+    ->execute();
+  // Check for stalled payment transactions and try to update theirs status.
+  $queue = \Drupal::queue('commerce_maib_queue');
+  foreach ($payment_ids as $payment_id) {
+    $queue->createItem($payment_id);
+  }
+}
