@@ -1,6 +1,6 @@
 {
     "name": "indrivo/commerce_maib",
-    "type": "library",
+    "type": "drupal-module",
     "description": "Provides Commerce integration for MAIB",
     "homepage": "https://github.com/indrivo/drupal_maib_commerce",
     "license": "GPL-2.0+",
