@@ -75,17 +75,20 @@ class PaymentWorker extends QueueWorkerBase implements ContainerFactoryPluginInt
     /** @var \Drupal\commerce_payment\Entity\Payment $payment */
     $payment = $this->entityTypeManager->getStorage('commerce_payment')->load($payment_id);
     $payment_state_id = $payment->getState()->getId();
-    if (
-      $payment &&
-      $payment_state_id == 'new' ||
-      $payment_state_id == 'authorization'
-    ) {
-      $maib_payment_gateway = \Drupal::routeMatch()->getParameter('commerce_payment_gateway')->getPlugin();
+    if ($payment && $payment_state_id == 'new') {
+      $maib_payment_gateway = $payment->getPaymentGateway()->getPlugin();
       try {
+        if (!$maib_payment_gateway) {
+          throw new \Exception('Failed to load payment gateway for stalled payment id ' , $payment_id);
+        }
+        $configuration = $maib_payment_gateway->getConfiguration();
+        $intent = $configuration['intent'] ?? '';
+
         $payment_info = $maib_payment_gateway->getClient()->getTransactionResult($payment->getRemoteId(), $payment->getOrder()->getIpAddress());
         $remote_status = $payment_info[MAIBGateway::MAIB_RESULT] ?? NULL;
         if ($remote_status == MAIBGateway::MAIB_RESULT_OK) {
-          $payment->setState('completed')->setRemoteState($payment_info[MAIBGateway::MAIB_RESULT])->save();
+          $proper_state = ($intent == 'authorize') ? 'authorization' : 'completed';
+          $payment->setState($proper_state)->setRemoteState($payment_info[MAIBGateway::MAIB_RESULT])->save();
           $this->logger
             ->warning('Completed stalled payment @payment with transaction id @trans_id for order @order',
               [
@@ -110,8 +113,9 @@ class PaymentWorker extends QueueWorkerBase implements ContainerFactoryPluginInt
                 '@remote' => $remote_status,
               ]);
           $payment->delete();
+          // @TODO: cancel order.
         }
-        else {
+        elseif (!in_array($remote_status, [MAIBGateway::MAIB_RESULT_CREATED, MAIBGateway::MAIB_RESULT_PENDING])) {
           $this->logger
             ->error('Failed to fetch payment info for @payment with transaction id @trans_id for order @order. Reomte data: @data.',
               [

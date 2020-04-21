@@ -13,11 +13,6 @@ INTRODUCTION
 
 This module will create a commerce payment plugin for Moldova Agroindbank.
 
-You can install this module: 
-
-```
-composer require drupal/commerce_maib
-```
 
 REQUIREMENTS
 ------------
@@ -47,7 +42,7 @@ CONFIGURATION
  * After you have received the .pfx file from Moldova Agroindbank it is necessary to unpack.
  * Move the received files outside of **web** directory. *Ex **certs** folder* : 
    - Path to the private key PEM file. | *Ex /var/www/html/certs/private-key.pem*
-   - Password for private key | *Password provided by MAIB from the .pfx file*
+   - Password for private key | *Password provided by MAIB from the private-key.pem file*
    - Path to the certificate PEM file containing public key | */var/www/html/certs/certificate.pem*
  * Select Transaction type.
  * Create order restricted by order currency for Moldovan Leu.
