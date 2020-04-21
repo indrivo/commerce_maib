@@ -1,31 +1,23 @@
 {
-    "name": "drupal/commerce_maib",
+    "name": "indrivo/commerce_maib",
     "type": "drupal-module",
     "description": "Provides Commerce integration for MAIB",
-    "homepage": "http://drupal.org/project/commerce_maib",
+    "homepage": "https://github.com/indrivo/drupal_maib_commerce",
     "license": "GPL-2.0+",
     "keywords": ["Drupal"],
     "minimum-stability": "dev",
     "support": {
-        "issues": "https://www.drupal.org/project/issues/commerce_maib",
-        "source": "http://cgit.drupalcode.org/commerce_maib"
+        "issues": "https://github.com/indrivo/drupal_maib_commerce/issues",
+        "source": "https://github.com/indrivo/drupal_maib_commerce"
     },
     "require": {
         "drupal/commerce": "^2.0",
-        "fruitware/maib-api": "dev-guzzle6"
+        "indrivo/maib-api": "dev"
     },
     "repositories": {
         "drupal": {
             "type": "composer",
             "url": "https://packages.drupal.org/8"
-        },
-        "maib-api": {
-            "type": "vcs",
-            "url": "https://github.com/indrivo/drupal_maib_commerce.git"
-        },
-        "fruitware/maib-api": {
-            "type": "vcs",
-            "url": "https://github.com/indrivo/maib-api.git"
         }
     }
 }

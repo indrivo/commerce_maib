@@ -6,7 +6,6 @@ use Drupal\commerce_maib\Exception\MAIBException;
 use Drupal\commerce_payment\PluginForm\PaymentOffsiteForm as BasePaymentOffsiteForm;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\commerce_maib\MAIBGateway;
-use Drupal\facets\Exception\Exception;
 
 /**
  * Class PaymentOffsiteForm.
@@ -60,7 +59,7 @@ class PaymentOffsiteForm extends BasePaymentOffsiteForm {
 
       $pending_payment = $payment_gateway_plugin->storePendingPayment($payment->getOrder(), $transaction_id);
     }
-    catch (Exception $e) {
+    catch (\Exception $e) {
       \Drupal::logger('commerce_maib')->error($e->getMessage());
       throw new MAIBException($this->t('MAIB error: @error', ['@error' => $e->getMessage()]));
     }

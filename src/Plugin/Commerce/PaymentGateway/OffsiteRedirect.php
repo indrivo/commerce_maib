@@ -104,7 +104,9 @@ class OffsiteRedirect extends OffsitePaymentGatewayBase implements SupportsAutho
    * {@inheritdoc}
    */
   public function submitConfigurationForm(array &$form, FormStateInterface $form_state) {
-    $old_pass = \Drupal::config('commerce_payment.commerce_payment_gateway.maib')->get('configuration.private_key_password');
+    $old_configuration = $this->getConfiguration();
+    $old_pass = $old_configuration['private_key_password'] ?? '';
+    //\Drupal::config('commerce_payment.commerce_payment_gateway.maib')->get('configuration.private_key_password');
     parent::submitConfigurationForm($form, $form_state);
     if (!$form_state->getErrors()) {
       $values = $form_state->getValue($form['#parents']);
@@ -112,9 +114,6 @@ class OffsiteRedirect extends OffsitePaymentGatewayBase implements SupportsAutho
       $this->configuration['public_key_path'] = $values['public_key_path'];
       $this->configuration['private_key_password'] = empty($values['private_key_password']) ? $old_pass : $values['private_key_password'];
       $this->configuration['intent'] = $values['intent'];
-      if (!isset($this->configuration['payment_gateway_id'])) {
-        $this->configuration['payment_gateway_id'] = $form_state->getValues()['id'];
-      }
     }
   }
 
@@ -129,7 +128,7 @@ class OffsiteRedirect extends OffsitePaymentGatewayBase implements SupportsAutho
     $payment_storage = $this->entityTypeManager->getStorage('commerce_payment');
     $payments = $payment_storage->loadByProperties([
       'remote_id' => $transactionId,
-      'payment_gateway' => $this->parentEntity->id(),
+      'payment_gateway' => commerce_maib_get_all_gateway_ids(),
     ]);
     if (empty($payments)) {
       throw new MAIBException($this->t('MAIB error: failed to locate payment for TRANSACTION_ID @id', ['@id' => $transactionId]));
@@ -147,13 +146,14 @@ class OffsiteRedirect extends OffsitePaymentGatewayBase implements SupportsAutho
     if (!empty($payment_info['error'])) {
       throw new MAIBException($this->t('MAIB error: @error', ['@error' => $payment_info['error']]));
     }
-    $payment_state = $payment->getState()->getOriginalId();
+
     if ($payment_info[MAIBGateway::MAIB_RESULT] == MAIBGateway::MAIB_RESULT_OK) {
-      if ($payment_state == 'new') {
-        $payment->setState('completed')->setRemoteState($payment_info[MAIBGateway::MAIB_RESULT])->save();
+      $intent = $this->configuration['intent'] ?? null;
+      if ($intent == 'authorize') {
+        $payment->setState('authorization')->setRemoteState($payment_info[MAIBGateway::MAIB_RESULT])->save();
         $this->messenger()->addMessage($this->t('Your transaction was successful.'));
         \Drupal::logger('commerce_maib')
-          ->notice('Completed payment @payment with transaction id @trans_id for order @order. @data',
+          ->notice('Completed authorization payment @payment with transaction id @trans_id for order @order. @data',
             [
               '@trans_id' => $transactionId,
               '@order' => $order->id(),
@@ -161,11 +161,11 @@ class OffsiteRedirect extends OffsitePaymentGatewayBase implements SupportsAutho
               '@data' => Json::encode($payment_info),
             ]);
       }
-      elseif ($payment_state == 'authorization') {
-        $payment->setState('authorization')->setRemoteState(MAIBGateway::MAIB_RESULT_PENDING)->save();
+      else {
+        $payment->setState('completed')->setRemoteState($payment_info[MAIBGateway::MAIB_RESULT])->save();
         $this->messenger()->addMessage($this->t('Your transaction was successful.'));
         \Drupal::logger('commerce_maib')
-          ->notice('Completed authorization payment @payment with transaction id @trans_id for order @order. @data',
+          ->notice('Completed payment @payment with transaction id @trans_id for order @order. @data',
             [
               '@trans_id' => $transactionId,
               '@order' => $order->id(),
@@ -280,20 +280,13 @@ class OffsiteRedirect extends OffsitePaymentGatewayBase implements SupportsAutho
   public function storePendingPayment(OrderInterface $order, string $transactionId): PaymentInterface {
     $payment_storage = $this->entityTypeManager->getStorage('commerce_payment');
     $payment = $payment_storage->create([
+      'state' => 'new',
       'amount' => $order->getBalance(),
       'payment_gateway' => $this->parentEntity->id(),
       'order_id' => $order->id(),
       'remote_id' => $transactionId,
       'remote_state' => MAIBGateway::MAIB_RESULT_CREATED,
     ]);
-
-    $payment_gateway_config_intent = $this->configuration['intent'];
-    if ($payment_gateway_config_intent == 'capture') {
-      $payment->setState('new');
-    }
-    elseif ($payment_gateway_config_intent == 'authorize') {
-      $payment->setState('authorization');
-    }
     $payment->save();
 
     return $payment;
@@ -381,6 +374,8 @@ class OffsiteRedirect extends OffsitePaymentGatewayBase implements SupportsAutho
   public function refundPayment(PaymentInterface $payment, Price $amount = NULL) {
     try {
       $this->assertPaymentState($payment, ['completed']);
+      $amount = $amount ?: $payment->getAmount();
+      $this->assertRefundAmount($payment, $amount);
     }
     catch (\Exception $e) {
       throw new MAIBException($this->t('Refund error: @error', ['@error' => $e->getMessage()]));
@@ -388,7 +383,7 @@ class OffsiteRedirect extends OffsitePaymentGatewayBase implements SupportsAutho
 
     try {
       // MAIB only support full refund for the payment of the authorization.
-      $result = $this->getClient()->revertTransaction($payment->getRemoteId(), $payment->getAmount());
+      $result = $this->getClient()->revertTransaction($payment->getRemoteId(), $amount);
     }
     catch (\Exception $e) {
       throw new MAIBException($this->t('MAIB error: @error', ['@error' => $e->getMessage()]));
@@ -399,8 +394,6 @@ class OffsiteRedirect extends OffsitePaymentGatewayBase implements SupportsAutho
     }
     // If MAIB response was OK do refund.
     if ($result[MAIBGateway::MAIB_RESULT] == MAIBGateway::MAIB_RESULT_OK) {
-      $amount = $amount ?: $payment->getAmount();
-      $this->assertRefundAmount($payment, $amount);
 
       $payment->setState('refunded');
       $payment->setRefundedAmount($amount);
@@ -418,16 +411,6 @@ class OffsiteRedirect extends OffsitePaymentGatewayBase implements SupportsAutho
     else {
       throw new MAIBException($this->t('MAIB result not OK: @data', ['@data' => Json::encode($result)]));
     }
-  }
-
-  /**
-   * Get payment gateway id.
-   *
-   * @return string
-   *   Payment gateway id.
-   */
-  public function getPaymentGatewayId(): string {
-    return $this->parentEntity->id();
   }
 
 }
