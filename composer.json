@@ -2,7 +2,7 @@
     "name": "indrivo/commerce_maib",
     "type": "drupal-module",
     "description": "Provides Commerce integration for MAIB",
-    "homepage": "http://drupal.org/project/commerce_maib",
+    "homepage": "https://github.com/indrivo/drupal_maib_commerce",
     "license": "GPL-2.0+",
     "keywords": ["Drupal"],
     "minimum-stability": "dev",
@@ -13,7 +13,7 @@
     },
     "require": {
         "drupal/commerce": "^2.0",
-        "indrivo/maib-api": "dev-master"
+        "indrivo/maib-api": "dev"
     },
     "repositories": {
         "drupal": {
