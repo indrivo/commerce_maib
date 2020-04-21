@@ -241,11 +241,10 @@ class PaymentCheckoutController implements ContainerInjectionInterface {
    *   The order.
    */
   public function getPayment($transaction_id) {
-    $payment_gateway_id = $this->maibConfig->get('configuration.payment_gateway_id');
     $payment_storage = $this->entityTypeManager->getStorage('commerce_payment');
     $payments = $payment_storage->loadByProperties([
       'remote_id' => $transaction_id,
-      'payment_gateway' => $payment_gateway_id,
+      'payment_gateway' => commerce_maib_get_all_gateway_ids(),
     ]);
     if (empty($payments)) {
       throw new MAIBException($this->t('MAIB error: failed to locate payment for TRANSACTION_ID @id', ['@id' => $transaction_id]));
