@@ -2,20 +2,25 @@
 
 namespace Drupal\commerce_maib\Plugin\Commerce\PaymentGateway;
 
-use Drupal\commerce_price\Price;
-use Drupal\commerce_payment\Entity\PaymentInterface;
+use Drupal\commerce_maib\MAIBGateway;
+use Drupal\commerce_maib\Exception\MAIBException;
 use Drupal\commerce_order\Entity\OrderInterface;
+use Drupal\commerce_payment\Entity\PaymentInterface;
+use Drupal\commerce_payment\Plugin\Commerce\PaymentGateway\SupportsAuthorizationsInterface;
+use Drupal\commerce_payment\Plugin\Commerce\PaymentGateway\SupportsRefundsInterface;
+use Drupal\commerce_price\Price;
 use Drupal\commerce_payment\Plugin\Commerce\PaymentGateway\OffsitePaymentGatewayBase;
 use Drupal\Component\Serialization\Json;
 use Drupal\Core\Form\FormStateInterface;
-use Symfony\Component\HttpFoundation\Request;
+use Drupal\Core\Url;
 use Fruitware\MaibApi\MaibClient;
 use GuzzleHttp\Client;
-use Drupal\Core\Url;
-use Drupal\commerce_maib\MAIBGateway;
-use Drupal\commerce_maib\Exception\MAIBException;
-use Drupal\commerce_payment\Plugin\Commerce\PaymentGateway\SupportsAuthorizationsInterface;
-use Drupal\commerce_payment\Plugin\Commerce\PaymentGateway\SupportsRefundsInterface;
+use GuzzleHttp\HandlerStack;
+use GuzzleHttp\Middleware;
+use GuzzleHttp\MessageFormatter;
+use Monolog\Handler\StreamHandler;
+use Monolog\Logger;
+use Symfony\Component\HttpFoundation\Request;
 
 /**
  * Provides the Off-site Redirect payment gateway.
@@ -64,17 +69,40 @@ class OffsiteRedirect extends OffsitePaymentGatewayBase implements SupportsAutho
       '#markup' => implode('<br>' . PHP_EOL, $urls),
     ];
 
+    $form['keys'] = [
+      '#type' => 'details',
+      '#title' => $this->t('Instructions to extract keys from PFX file'),
+      '#open' => FALSE,
+    ];
+
+    $commands = [
+      '<i>&diams;Public key chain:</i>',
+      '<code>openssl pkcs12 -in certname.pfx -nokeys -out cert.pem</code>',
+      '<i>&diams;Private key with password:</i>',
+      '<code>openssl pkcs12 -in certname.pfx -nocerts -out key.pem</code>',
+      '<i>&diams;Or optionally without password:</i>',
+      '<code>openssl pkcs12 -in certname.pfx -nocerts -out key.pem -nodes</code>',
+      '<i>*Centos note, curl+nss requires rsa + des3 for private key:</i>',
+      '<code>openssl rsa -des3 -in key.pem -out key-des3.pem</code>'
+    ];
+    $form['keys']['keys_info'] = [
+      '#type' => 'item',
+      '#title' => $this->t('Use openssl to extract keys from PFX file and password provided by bank'),
+      '#markup' => implode('<br>' . PHP_EOL, $commands),
+    ];
+
     // @TODO: validate key/certificate pairing and expiration.
     $form['private_key_path'] = [
       '#type' => 'textfield',
       '#title' => $this->t('Path to the private key PEM file'),
       '#default_value' => $this->configuration['private_key_path'],
+      '#description' => 'Ex: /var/www/maib-certificate/key.pem'
     ];
 
     $form['private_key_password'] = [
       '#type' => 'password',
       '#title' => $this->t('Password for private key'),
-      '#description' => $this->t('Leave empty if no change intended'),
+      '#description' => $this->t('Leave empty if no change intended or private key has no password'),
       '#default_value' => '',
     ];
 
@@ -82,6 +110,7 @@ class OffsiteRedirect extends OffsitePaymentGatewayBase implements SupportsAutho
       '#type' => 'textfield',
       '#title' => $this->t('Path to the certificate PEM file containing public key'),
       '#default_value' => $this->configuration['public_key_path'],
+      '#description' => 'Ex: /var/www/maib-certificate/cert.pem',
     ];
 
     $form['intent'] = [
@@ -97,7 +126,56 @@ class OffsiteRedirect extends OffsitePaymentGatewayBase implements SupportsAutho
       '#default_value' => $this->configuration['intent'],
     ];
 
+    $form['debug'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('Log debug info'),
+      '#default_value' => $this->configuration['debug'],
+    ];
+
+    $form['debug_file'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Log file'),
+      '#default_value' => $this->configuration['debug_file'],
+      '#description' => 'Ex: /tmp/maib-requests.log',
+      '#states' => [
+        'visible' => [
+          ':input[name="configuration[maib_redirect][debug]"]' => ['checked' => TRUE],
+        ],
+      ],
+    ];
+
     return $form;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function validateConfigurationForm(array &$form, FormStateInterface $form_state) {
+    parent::validateConfigurationForm($form, $form_state);
+    $values = $form_state->getValue($form['#parents']);
+    // Validate public key.
+    if (!file_exists($values['public_key_path'])) {
+      $form_state->setErrorByName('public_key_path', $this->t("Incorrect path to public key"));
+    }
+    else {
+      $rsaKey = file_get_contents($values['public_key_path']);
+      openssl_get_publickey($rsaKey) ?: $form_state->setErrorByName('public_key_path', $this->t("Can't get public key from file"));
+    }
+    // Validate private key.
+    if (!file_exists($values['private_key_path'])) {
+      $form_state->setErrorByName('private_key_path', $this->t("Incorrect path to private key"));
+    }
+    else {
+      $rsaKey = file_get_contents($values['private_key_path']);
+      $old_configuration = $this->getConfiguration();
+      $old_pass = $old_configuration['private_key_password'] ?? '';
+      $key_pass = empty($values['private_key_password']) ? $old_pass : $values['private_key_password'];
+      openssl_get_privatekey($rsaKey, $key_pass) ?: $form_state->setErrorByName('private_key_path', $this->t("Can't get private key from file"));
+    }
+
+    if ($values['debug'] && empty(trim($values['debug_file']))) {
+      $form_state->setErrorByName('debug_file', $this->t("Path to log file missing"));
+    }
   }
 
   /**
@@ -114,6 +192,8 @@ class OffsiteRedirect extends OffsitePaymentGatewayBase implements SupportsAutho
       $this->configuration['public_key_path'] = $values['public_key_path'];
       $this->configuration['private_key_password'] = empty($values['private_key_password']) ? $old_pass : $values['private_key_password'];
       $this->configuration['intent'] = $values['intent'];
+      $this->configuration['debug'] = $values['debug'];
+      $this->configuration['debug_file'] = $values['debug_file'];
     }
   }
 
@@ -260,6 +340,17 @@ class OffsiteRedirect extends OffsitePaymentGatewayBase implements SupportsAutho
         ],
       ],
     ];
+
+    if (!empty($configuration['debug']) && !empty($configuration['debug_file'])) {
+      $log = new Logger('maib_guzzle_request');
+      $log->pushHandler(new StreamHandler($configuration['debug_file'], Logger::DEBUG));
+      $stack = HandlerStack::create();
+      $stack->push(
+        Middleware::log($log, new MessageFormatter(MessageFormatter::DEBUG))
+      );
+      $options['handler'] = $stack;
+    }
+
     $guzzleClient = new Client($options);
     $client = new MaibClient($guzzleClient);
 

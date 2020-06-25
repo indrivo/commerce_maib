@@ -188,7 +188,7 @@ class PaymentCheckoutController implements ContainerInjectionInterface {
     /** @var \Drupal\commerce_order\Entity\OrderInterface $order */
     $order = $payment->getOrder();
 
-    $this->redirectToCheckoutFinishedUrl($order, 'return', $transaction_id);
+    $this->redirectToCheckoutFinishedUrl($order, 'cancel', $transaction_id);
 
     /** @var \Drupal\commerce_payment\Entity\PaymentGatewayInterface $payment_gateway */
     $payment_gateway = $order->get('payment_gateway')->entity;
